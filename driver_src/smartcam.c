@@ -25,10 +25,6 @@
   * Tomas Janousek <tomi@nomi.cz> : implement YUYV pixel format, fix poll and nonblock
   */
 
-//#include <linux/module.h>
-//#include <linux/errno.h>
-//#include <linux/kernel.h>
-//#include <linux/vmalloc.h>
 #include <linux/vmalloc.h>
 #include <linux/mm.h>
 #include <media/v4l2-ioctl.h>
@@ -59,7 +55,6 @@
 #define SMARTCAM_NFORMATS 2
 
 //#define SMARTCAM_DEBUG
-#define SMARTCAM_DEBUG
 #undef SCAM_MSG				/* undef it, just in case */
 #ifdef SMARTCAM_DEBUG
 #     define SCAM_MSG(fmt, args...) printk(KERN_ALERT "smartcam:" fmt, ## args)
@@ -172,9 +167,9 @@ static int vidioc_s_fmt_cap(struct file *file, void *priv, struct v4l2_format *f
         }
     }
 
-        printk(KERN_ALERT "smartcam : vidioc_s_fmt_cap called\n\t\twidth=%d; \
-height=%d; pixelformat=%s\n\t\tfield=%d; bytesperline=%d; sizeimage=%d; colspace = %d; return EINVAL\n",
-        /*current->comm,*/ f->fmt.pix.width, f->fmt.pix.height, (char*)&f->fmt.pix.pixelformat,
+        printk(KERN_ALERT "smartcam : vidioc_s_fmt_cap called\n\t\twidth=%d; height=%d; \
+pixelformat=%s\n\t\tfield=%d; bytesperline=%d; sizeimage=%d; colspace = %d; return EINVAL\n",
+        f->fmt.pix.width, f->fmt.pix.height, (char*)&f->fmt.pix.pixelformat,
     f->fmt.pix.field, f->fmt.pix.bytesperline, f->fmt.pix.sizeimage, f->fmt.pix.colorspace);
 
     return -EINVAL;
@@ -460,11 +455,8 @@ static int vidioc_s_parm(struct file *file, void *priv, struct v4l2_streamparm *
     File operations for the device
    ------------------------------------------------------------------*/
 
-static int smartcam_open(/*struct inode *inode,*/ struct file *file)
+static int smartcam_open(struct file *file)
 {
-        //int minor = 0;
-        //minor = iminor(inode);
-        //SCAM_MSG("(%s) %s called (minor=%d)\n", current->comm, __FUNCTION__, minor);
         SCAM_MSG("(%s) %s called\n", current->comm, __FUNCTION__);
     return 0;
 }
@@ -554,14 +546,14 @@ static unsigned int smartcam_poll(struct file *file, struct poll_table_struct *w
     return mask;
 }
 
-static int smartcam_release(/*struct inode *inode,*/ struct file *file)
+static int smartcam_release(struct file *file)
 {
     SCAM_MSG("(%s) %s called\n", current->comm, __FUNCTION__);
     return 0;
 }
 
 static const struct v4l2_file_operations smartcam_fops = {
-    //.owner		= THIS_MODULE,
+    .owner		= THIS_MODULE,
     .open           = smartcam_open,
     .release        = smartcam_release,
     .read           = smartcam_read,
@@ -569,7 +561,6 @@ static const struct v4l2_file_operations smartcam_fops = {
     .poll		= smartcam_poll,
     .ioctl          = video_ioctl2, /* V4L2 ioctl handler */
     .mmap		= smartcam_mmap,
-    /*.llseek         = no_llseek,*/
 };
 
 static const struct v4l2_ioctl_ops smartcam_ioctl_ops = {
