@@ -33,14 +33,16 @@
 //#include <linux/videodev2.h>
 #include <linux/sched.h>
 #include <linux/module.h>
+#include <linux/wait.h>
+#include <linux/delay.h>
+#include <media/v4l2-device.h>
+#include <media/v4l2-ioctl.h>
+#include <media/v4l2-ctrls.h>
+#include <media/v4l2-fh.h>
+#include <media/v4l2-event.h>
+#include <media/v4l2-common.h>
 
-#ifdef CONFIG_VIDEO_V4L1_COMPAT
-/* Include V4L1 specific functions. Should be removed soon */
-#include <linux/videodev.h>
-#endif
-//#include <linux/interrupt.h>
-//#include <media/v4l2-common.h>
-
+#define SMARTCAM_MODULE_NAME "smartcam"
 #define SMARTCAM_MAJOR_VERSION 0
 #define SMARTCAM_MINOR_VERSION 1
 #define SMARTCAM_RELEASE 0
@@ -66,7 +68,10 @@
     Basic structures
    ------------------------------------------------------------------*/
 
-struct smartcam_private_data {
+struct smartcam_dev {
+    struct v4l2_device  v4l2_dev;
+    struct video_device vdev;
+    struct mutex        mutex;
 };
 
 
@@ -106,12 +111,12 @@ static struct timeval frame_timestamp;
    ------------------------------------------------------------------*/
 static int vidioc_querycap(struct file *file, void  *priv, struct v4l2_capability *cap)
 {
+    struct smartcam_dev *dev = video_drvdata(file);
     strcpy(cap->driver, "smartcam");
     strcpy(cap->card, "smartcam");
-    cap->version = SMARTCAM_VERSION;
-    cap->capabilities =	V4L2_CAP_VIDEO_CAPTURE |
-                V4L2_CAP_STREAMING     |
-                V4L2_CAP_READWRITE;
+    snprintf(cap->bus_info, sizeof(cap->bus_info), "platform:%s", dev->v4l2_dev.name);
+    cap->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING | V4L2_CAP_READWRITE;
+    cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
     SCAM_MSG("(%s) %s called\n", current->comm, __FUNCTION__);
     return 0;
 }
@@ -167,10 +172,10 @@ static int vidioc_s_fmt_cap(struct file *file, void *priv, struct v4l2_format *f
         }
     }
 
-        printk(KERN_ALERT "smartcam : vidioc_s_fmt_cap called\n\t\twidth=%d; height=%d; \
-pixelformat=%s\n\t\tfield=%d; bytesperline=%d; sizeimage=%d; colspace = %d; return EINVAL\n",
+        SCAM_MSG("smartcam (%s): vidioc_s_fmt_cap called\n\t\twidth=%d; height=%d; \
+        pixelformat=%s\n\t\tfield=%d; bytesperline=%d; sizeimage=%d; colspace = %d; return EINVAL\n",
         f->fmt.pix.width, f->fmt.pix.height, (char*)&f->fmt.pix.pixelformat,
-    f->fmt.pix.field, f->fmt.pix.bytesperline, f->fmt.pix.sizeimage, f->fmt.pix.colorspace);
+        f->fmt.pix.field, f->fmt.pix.bytesperline, f->fmt.pix.sizeimage, f->fmt.pix.colorspace);
 
     return -EINVAL;
 }
@@ -243,11 +248,7 @@ static int vidioc_querybuf(struct file *file, void *priv, struct v4l2_buffer *vi
     }
         vidbuf->memory = V4L2_MEMORY_MMAP;
 
-    if(vidbuf->memory != V4L2_MEMORY_MMAP)
-    {
-        SCAM_MSG("vidioc_querybuf called - invalid memory type(%d!=%d)\n", V4L2_MEMORY_MMAP, vidbuf->memory);
-        return -EINVAL;
-    }
+    vidbuf->memory = V4L2_MEMORY_MMAP;
     vidbuf->length = SMARTCAM_BUFFER_SIZE;
     vidbuf->bytesused = formats[format].sizeimage;
     vidbuf->flags = V4L2_BUF_FLAG_MAPPED;
@@ -299,7 +300,8 @@ static int vidioc_dqbuf(struct file *file, void *priv, struct v4l2_buffer *vidbu
     }
 
     if(!(file->f_flags & O_NONBLOCK))
-        interruptible_sleep_on_timeout(&wq, HZ); /* wait max 1 second */
+     // interruptible_sleep_on_timeout(&wq, HZ); /* wait max 1 second */
+        msleep_interruptible(1000);
 
     vidbuf->length = SMARTCAM_BUFFER_SIZE;
     vidbuf->bytesused = formats[format].sizeimage;
@@ -309,14 +311,6 @@ static int vidioc_dqbuf(struct file *file, void *priv, struct v4l2_buffer *vidbu
     last_read_frame = frame_sequence;
     return 0;
 }
-
-#ifdef CONFIG_VIDEO_V4L1_COMPAT
-static int vidiocgmbuf (struct file *file, void *priv, struct video_mbuf *mbuf)
-{
-    SCAM_MSG("(%s) %s called\n", current->comm, __FUNCTION__);
-    return 0;
-}
-#endif
 
 static int vidioc_streamon(struct file *file, void *priv, enum v4l2_buf_type i)
 {
@@ -330,10 +324,17 @@ static int vidioc_streamoff(struct file *file, void *priv, enum v4l2_buf_type i)
     return 0;
 }
 
-static int vidioc_s_std (struct file *file, void *priv, v4l2_std_id *i)
+static int vidioc_s_std (struct file *file, void *priv, v4l2_std_id i)
 {
     SCAM_MSG("(%s) %s called\n", current->comm, __FUNCTION__);
     return 0;
+}
+
+static int vidioc_g_std (struct file *file, void *priv, v4l2_std_id *i)
+{
+        SCAM_MSG("(%s) %s called\n", current->comm, __FUNCTION__);
+        *i = V4L2_STD_NTSC_M;
+        return 0;
 }
 
 /* only one input */
@@ -469,7 +470,8 @@ static ssize_t smartcam_read(struct file *file, char __user *data, size_t count,
         return 0;
 
     if (!(file->f_flags & O_NONBLOCK))
-        interruptible_sleep_on_timeout(&wq, HZ/10); /* wait max 1 second */
+     // interruptible_sleep_on_timeout(&wq, HZ/10); /* wait max 1 second */
+        msleep_interruptible(100);
     last_read_frame = frame_sequence;
 
     if(*f_pos + count > formats[format].sizeimage)
@@ -574,6 +576,7 @@ static const struct v4l2_ioctl_ops smartcam_ioctl_ops = {
     .vidioc_qbuf          = vidioc_qbuf,
     .vidioc_dqbuf         = vidioc_dqbuf,
     .vidioc_s_std         = vidioc_s_std,
+    .vidioc_g_std	      = vidioc_g_std,
     .vidioc_enum_input    = vidioc_enum_input,
     .vidioc_g_input       = vidioc_g_input,
     .vidioc_s_input       = vidioc_s_input,
@@ -587,20 +590,15 @@ static const struct v4l2_ioctl_ops smartcam_ioctl_ops = {
     .vidioc_s_parm	      = vidioc_s_parm,
     .vidioc_streamon      = vidioc_streamon,
     .vidioc_streamoff     = vidioc_streamoff,
-#ifdef CONFIG_VIDEO_V4L1_COMPAT
-    .vidiocgmbuf          = vidiocgmbuf,
-#endif
 };
 
 static struct video_device smartcam_vid = {
     .name		= "smartcam",
     .vfl_type               = VFL_TYPE_GRABBER,
-    //.hardware	= 0,
     .fops           = &smartcam_fops,
     .minor		= -1,
     .release	= video_device_release_empty,
     .tvnorms        = V4L2_STD_NTSC_M,
-    .current_norm   = V4L2_STD_NTSC_M,
     .ioctl_ops	= &smartcam_ioctl_ops,
 };
 
@@ -610,24 +608,54 @@ static struct video_device smartcam_vid = {
 
 static int __init smartcam_init(void)
 {
+    struct smartcam_dev *dev;
+    struct video_device *vfd;
     int ret = 0;
+    
+    dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+    if (!dev)
+        return -ENOMEM;
+    
+    
     frame_data =  (char*) vmalloc(SMARTCAM_BUFFER_SIZE);
     if(!frame_data)
     {
         return -ENOMEM;
     }
     frame_sequence = last_read_frame = 0;
-    ret = video_register_device(&smartcam_vid, VFL_TYPE_GRABBER, -1);
+//  ret = video_register_device(&smartcam_vid, VFL_TYPE_GRABBER, -1);
+    snprintf(dev->v4l2_dev.name, sizeof(dev->v4l2_dev.name),
+            "%s", SMARTCAM_MODULE_NAME);
+    ret = v4l2_device_register(NULL, &dev->v4l2_dev);
+    if (ret)
+        goto free_dev;
+    vfd = &dev->vdev;
+    *vfd = smartcam_vid;
+    vfd->v4l2_dev = &dev->v4l2_dev;
+    vfd->lock = &dev->mutex;
+    video_set_drvdata(vfd, dev);
+    ret = video_register_device(vfd, VFL_TYPE_GRABBER, -1);
+
+    if (ret < 0)
+        goto unreg_dev;
     SCAM_MSG("(%s) load status: %d\n", current->comm, ret);
+    return 0;
+unreg_dev:
+    v4l2_device_unregister(&dev->v4l2_dev);
+free_dev:
+    kfree(dev);
     return ret;
 }
 
 static void __exit smartcam_exit(void)
 {
+    struct smartcam_dev *dev;
     SCAM_MSG("(%s) %s called\n", current->comm, __FUNCTION__);
     frame_sequence = 0;
     vfree(frame_data);
     video_unregister_device(&smartcam_vid);
+    v4l2_device_unregister(&dev->v4l2_dev);
+    kfree(dev);
 }
 
 module_init(smartcam_init);
