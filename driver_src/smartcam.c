@@ -413,7 +413,7 @@ static int vidioc_g_crop(struct file *file, void *priv, struct v4l2_crop *crop)
     return -EINVAL;
 }
 
-static int vidioc_s_crop(struct file *file, void *priv, struct v4l2_crop *crop)
+static int vidioc_s_crop(struct file *file, void *priv, const struct v4l2_crop *crop)
 {
     SCAM_MSG("(%s) %s called - return EINVAL\n", current->comm, __FUNCTION__);
     //return -EINVAL;
