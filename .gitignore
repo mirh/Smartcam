@@ -1,0 +1,13 @@
+Makefile.in
+.deps/
+/config.log
+/config.status
+Makefile
+
+*.d
+*.o
+*.ko
+*.mod*
+*.cmd
+modules.order
+Module.symvers
