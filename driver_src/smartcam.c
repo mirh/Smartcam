@@ -555,14 +555,14 @@ static int smartcam_release(struct file *file)
 }
 
 static const struct v4l2_file_operations smartcam_fops = {
-    .owner		= THIS_MODULE,
+    .owner          = THIS_MODULE,
     .open           = smartcam_open,
     .release        = smartcam_release,
     .read           = smartcam_read,
     .write          = smartcam_write,
-    .poll		= smartcam_poll,
-    .ioctl          = video_ioctl2, /* V4L2 ioctl handler */
-    .mmap		= smartcam_mmap,
+    .poll           = smartcam_poll,
+    .unlocked_ioctl = video_ioctl2, /* V4L2 ioctl handler */
+    .mmap           = smartcam_mmap,
 };
 
 static const struct v4l2_ioctl_ops smartcam_ioctl_ops = {
@@ -616,6 +616,7 @@ static int __init smartcam_init(void)
     if (!dev)
         return -ENOMEM;
     
+    mutex_init(&dev->mutex);
     
     frame_data =  (char*) vmalloc(SMARTCAM_BUFFER_SIZE);
     if(!frame_data)
