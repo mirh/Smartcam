@@ -129,8 +129,10 @@ static int vidioc_querycap(struct file *file, void  *priv, struct v4l2_capabilit
     strcpy(cap->driver, "smartcam");
     strcpy(cap->card, "smartcam");
     snprintf(cap->bus_info, sizeof(cap->bus_info), "platform:%s", dev->v4l2_dev.name);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 4, 0)
     cap->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING | V4L2_CAP_READWRITE;
     cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
+#endif
     SCAM_MSG("(%s) %s called\n", current->comm, __FUNCTION__);
     return 0;
 }
@@ -639,6 +641,9 @@ static struct video_device smartcam_vid = {
     .release	= video_device_release_empty,
     .tvnorms        = V4L2_STD_NTSC_M,
     .ioctl_ops	= &smartcam_ioctl_ops,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 0)
+    .device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_VIDEO_OUTPUT | V4L2_CAP_READWRITE | V4L2_CAP_STREAMING,
+#endif
 };
 
 /* -----------------------------------------------------------------
