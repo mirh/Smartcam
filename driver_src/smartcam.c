@@ -106,6 +106,20 @@ static __u32 last_read_frame = 0;
 static __u32 format = 0;
 static struct timeval frame_timestamp;
 
+static inline void v4l2l_get_timestamp(struct timeval *tv) {
+	/* ktime_get_ts is considered deprecated, so use ktime_get_ts64 if possible */
+#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 17, 0)
+	struct timespec ts;
+	ktime_get_ts(&ts);
+#else
+	struct timespec64 ts;
+	ktime_get_ts64(&ts);
+#endif
+
+	tv->tv_sec = (time_t)ts.tv_sec;
+	tv->tv_usec = (suseconds_t)(ts.tv_nsec / NSEC_PER_USEC);
+}
+
 /* ------------------------------------------------------------------
     IOCTL vidioc handling
    ------------------------------------------------------------------*/
@@ -391,6 +405,26 @@ static int vidioc_s_ctrl(struct file *file, void *priv,	struct v4l2_control *ctr
     return -EINVAL;
 }
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+static int vidioc_selection(struct file *file, void *priv, struct v4l2_selection *selection)
+{
+	if (selection->type != V4L2_BUF_TYPE_VIDEO_CAPTURE)
+		return -EINVAL;
+
+	switch (selection->target) {
+	case V4L2_SEL_TGT_CROP_BOUNDS:
+	case V4L2_SEL_TGT_CROP_DEFAULT:
+		selection->r.top = 0;
+		selection->r.left = 0;
+		selection->r.width = SMARTCAM_FRAME_WIDTH;
+		selection->r.height = SMARTCAM_FRAME_HEIGHT;
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
+}
+#else
 static int vidioc_cropcap(struct file *file, void *priv, struct v4l2_cropcap *cropcap)
 {
     struct v4l2_rect defrect;
@@ -419,6 +453,7 @@ static int vidioc_s_crop(struct file *file, void *priv, const struct v4l2_crop *
     //return -EINVAL;
     return 0;
 }
+#endif
 
 static int vidioc_g_parm(struct file *file, void *priv, struct v4l2_streamparm *streamparm)
 {
@@ -530,7 +565,7 @@ static ssize_t smartcam_write(struct file *file, const char __user *data, size_t
     if (formats[format].pixelformat == V4L2_PIX_FMT_YUYV)
         rgb_to_yuyv();
 
-    do_gettimeofday(&frame_timestamp);
+    v4l2l_get_timestamp(&frame_timestamp);
     wake_up_interruptible_all(&wq);
     return count;
 }
@@ -583,9 +618,13 @@ static const struct v4l2_ioctl_ops smartcam_ioctl_ops = {
     .vidioc_queryctrl     = vidioc_queryctrl,
     .vidioc_g_ctrl        = vidioc_g_ctrl,
     .vidioc_s_ctrl        = vidioc_s_ctrl,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)
+    .vidioc_g_selection   = vidioc_selection,
+#else
     .vidioc_cropcap	      = vidioc_cropcap,
     .vidioc_g_crop	      = vidioc_g_crop,
     .vidioc_s_crop	      = vidioc_s_crop,
+#endif
     .vidioc_g_parm	      = vidioc_g_parm,
     .vidioc_s_parm	      = vidioc_s_parm,
     .vidioc_streamon      = vidioc_streamon,
