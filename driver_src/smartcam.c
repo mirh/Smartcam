@@ -64,6 +64,10 @@
 #     define SCAM_MSG(fmt, args...)	/* not debugging: nothing */
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0)
+#define timeval __kernel_v4l2_timeval
+#endif
+
 /* ------------------------------------------------------------------
     Basic structures
    ------------------------------------------------------------------*/
@@ -116,8 +120,8 @@ static inline void v4l2l_get_timestamp(struct timeval *tv) {
 	ktime_get_ts64(&ts);
 #endif
 
-	tv->tv_sec = (time_t)ts.tv_sec;
-	tv->tv_usec = (suseconds_t)(ts.tv_nsec / NSEC_PER_USEC);
+	tv->tv_sec = ts.tv_sec;
+	tv->tv_usec = ts.tv_nsec / NSEC_PER_USEC;
 }
 
 /* ------------------------------------------------------------------
