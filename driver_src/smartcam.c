@@ -68,6 +68,10 @@
 #define timeval __kernel_v4l2_timeval
 #endif
 
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 7, 0)
+#define VFL_TYPE_GRABBER VFL_TYPE_VIDEO
+#endif
+
 /* ------------------------------------------------------------------
     Basic structures
    ------------------------------------------------------------------*/
